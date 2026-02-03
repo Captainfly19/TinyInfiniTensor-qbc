@@ -1,0 +1,10 @@
+{
+    ["detect.sdks.find_xcode"] = {
+        xcode = { }
+    },
+    find_program = {
+        zig = false,
+        nim = false,
+        cmake = "/usr/local/bin/cmake"
+    }
+}

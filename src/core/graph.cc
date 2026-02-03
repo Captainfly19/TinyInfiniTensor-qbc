@@ -1,5 +1,8 @@
 #include "core/graph.h"
-#include <algorithm>
+#include "core/op_type.h"
+#include "operators/matmul.h"
+#include "operators/transpose.h"
+#include <algorithm>    
 #include <numeric>
 #include <queue>
 
@@ -71,7 +74,6 @@ namespace infini
         flags.reserve(ops.size());
         while (sorted.size() < ops.size())
         {
-            // Any node is move to sorted in this loop.
             auto modified = false;
             for (auto const &op : ops)
             {
@@ -100,13 +102,111 @@ namespace infini
 
     void GraphObj::optimize()
     {
+ 
         // =================================== 作业 ===================================
         // TODO: 设计一个算法来实现指定的图优化规则
         // 图优化规则如下：
         // 1. 去除冗余的算子（例如，两个相邻的算子都是 transpose 算子，且做的是相反的操作，可以将其全部删除）
         // 2. 合并算子（例如，矩阵乘算子中含有属性transA、transB，如果其输入存在transpose，且对最后两个维度做交换，就可以将transpose融入到矩阵乘算子的属性中去）
         // =================================== 作业 ===================================
+
+
+  bool optimized = true;
+  while (optimized) {
+    optimized = false;
+    for (auto op :ops) {
+      if (op->type == OpType::Transpose) {
+
+        for(auto next_op :op->getSuccessors()){
+            if (next_op->type == OpType::Transpose) {
+            
+            auto perm1 = as<TransposeObj>(op)->getPermute();
+            auto perm2 = as<TransposeObj>(next_op)->getPermute();
+
+            if (perm1 == perm2) {
+                for(auto last_op : op->getPredecessors()){
+                    for(auto output :next_op->getOutputs()){
+                        output->setSource(last_op);
+                    }
+                }                            
+
+                for(auto input :op->getInputs()){
+                    for(auto nex_op :next_op->getSuccessors()){
+                        input->removeTarget(op);
+                        input->addTarget(nex_op);
+                        nex_op->removePredecessors(next_op);
+                        nex_op->replaceInput(next_op->getOutput(),input); 
+                    }
+                }     
+
+                for(auto last_op :op->getPredecessors()){
+                    last_op->removeSuccessors(op);
+                    for(auto nex_op :next_op->getSuccessors()){
+                        last_op->addSuccessors(nex_op);
+                        nex_op->addPredecessors(last_op);
+                    }
+                }
+
+
+                removeTensor(next_op->getOutput());
+                removeTensor(op->getOutput());
+                removeOperator(next_op);
+                removeOperator(op);
+            } 
+
+
+            optimized = true;
+            break;
+            }
+        }
     }
+
+      if (op->type == OpType::MatMul) {
+        for (auto input : op->getInputs()) {
+          if (input->getSource() != nullptr && input->getSource()->type == OpType::Transpose){
+            auto preop = input->getSource();
+            auto transpose_op = dynamic_cast<TransposeObj*>(preop.get());
+
+            auto perm = transpose_op->getPermute();
+            if (std::all_of(perm.begin(),perm.begin()+perm.size()-2,[ i =0](int p )mutable {return p==i++;}))
+                {
+
+                    if (perm[perm.size() - 1] - perm[perm.size() - 2] == -1){
+                            auto matop = dynamic_cast<MatmulObj*>(op.get());
+
+                            if (input == op->getInputs()[0]) {
+                                matop->setTransA(!matop->getTransA());
+                            } else {
+                                matop->setTransB(!matop->getTransB());
+                            }
+
+                            for(auto transinput :transpose_op->getInputs() ){
+                                transinput->removeTarget(preop);
+                                transinput->addTarget(op);
+                                op->replaceInput(input,transinput);
+                            }
+                            op->removePredecessors(preop);
+                            for(auto pred :transpose_op->getPredecessors()){
+                                pred->removeSuccessors(preop);
+                                pred->addSuccessors(op);
+                                op->addPredecessors(pred);
+                            }
+
+                            removeTensor(transpose_op->getOutputs()[0]);
+                            removeOperator(preop);
+
+                            optimized = true;
+                    }
+                }
+            }
+        }
+        if(optimized) break;
+
+      }
+    }
+  
+  }
+}
 
     Tensor GraphObj::getTensor(int fuid) const
     {
@@ -128,7 +228,7 @@ namespace infini
             IT_ASSERT(ans.has_value());
             auto oldOutputs = op->getOutputs();
             IT_ASSERT(ans.value().size() == oldOutputs.size());
-            // replace the old outputshape and size with new one
+            // 用新的输出形状和大小代替旧的
             for (int i = 0; i < (int)ans.value().size(); ++i)
             {
                 auto newShape = ans.value()[i];
@@ -143,15 +243,26 @@ namespace infini
         }
     }
 
-    void GraphObj::dataMalloc()
-    {
-        // topological sorting first
+    void GraphObj::dataMalloc() {
         IT_ASSERT(topo_sort() == true);
 
-        // =================================== 作业 ===================================
+        // =================================== 作业
+        // ===================================
         // TODO：利用 allocator 给计算图分配内存
-        // HINT: 获取分配好的内存指针后，可以调用 tensor 的 setDataBlob 函数给 tensor 绑定内存
-        // =================================== 作业 ===================================
+        // HINT: 获取分配好的内存指针后，可以调用 tensor 的 setDataBlob 函数给
+        // tensor 绑定内存
+        // =================================== 作业
+        // ===================================
+        size_t total_size{0};
+        for(auto &tensor :tensors){
+            total_size += tensor->getBytes();
+        }
+        size_t addr = allocator.alloc((total_size));
+        size_t offset = 0;
+        for(auto &tensor :tensors){
+            tensor->setDataBlob(make_ref<BlobObj>(runtime,reinterpret_cast<void*>(reinterpret_cast<char*>(allocator.getPtr()) +addr+ offset)));
+            offset += tensor->getBytes();
+        }
 
         allocator.info();
     }
@@ -178,10 +289,7 @@ namespace infini
         return tensors;
     }
 
-    // tensor's "source" and "target" must be in "ops".
-    // tensor has no "source" and no "target" must not exist.
-    // "inputs" or "outputs" of operators must be in "tensors"
-    // "predecessors" and "successors" of an operator of "ops" must be in "ops".
+    
     bool GraphObj::checkValid() const
     {
         for (auto tensor : tensors)
@@ -217,7 +325,7 @@ namespace infini
             }
         }
         std::set<UidBaseType> s;
-        // check whether two tensors with the same FUID exist
+        // 检查是否存在两个具有相同FUID的张量
         for (auto tensor : tensors)
         {
             int cnt = s.count(tensor->getFuid());

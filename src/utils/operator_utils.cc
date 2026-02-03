@@ -1,5 +1,7 @@
 #include "utils/operator_utils.h"
 #include "core/runtime.h"
+#include <cstddef>
+#include <iostream>
 
 namespace infini {
 
@@ -9,8 +11,22 @@ Shape infer_broadcast(const Shape &A, const Shape &B) {
     // TODO：对 A 和 B 进行双向广播，返回广播后的形状。
     // REF: https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md
     // =================================== 作业 ===================================
+	size_t size_A = A.size();
+	size_t size_B = B.size();
+	size_t max_size = std::max(size_A, size_B);
+	Shape result(max_size);
+	// 广播需要从后向前比较
+	for (size_t i = 0; i < max_size; i++) {
+		int dim_A = (i < size_A) ? A[size_A - 1 - i] : 1;
+		int dim_B = (i < size_B) ? B[size_B - 1 - i] : 1;
+
+		if(dim_A != dim_B && dim_A != 1 && dim_B != 1){
+			std::cout << "cannot broardcasting\n";
+		}
+		result[max_size - i - 1] = std::max(dim_A, dim_B);
+	}
     
-    return {};
+    return {result};
 }
 
 int get_real_axis(const int &axis, const int &rank) {

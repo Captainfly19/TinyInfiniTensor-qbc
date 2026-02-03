@@ -1,4 +1,6 @@
 #include "core/allocator.h"
+#include <algorithm>
+#include <cstdio>
 #include <utility>
 
 namespace infini
@@ -25,10 +27,44 @@ namespace infini
 
     size_t Allocator::alloc(size_t size)
     {
+        printf("function begin\r\n");
         IT_ASSERT(this->ptr == nullptr);
         // pad the size to the multiple of alignment
+
+        printf("pad begin\r\n");
         size = this->getAlignedSize(size);
 
+        //it遍历所有的空内存块
+        auto it = free_block.begin();
+        //first 起始地址/终止地址 second 块的大小
+        while(it != free_block.end())
+        {
+            if(it->second >= size)
+            {
+                size_t addr = it -> first;
+
+                //若空闲块的大小比需要分配的空间大，拆分空闲块
+                if(it->second > size)
+                {
+                    free_block[addr+size] = it->second - size;
+                }
+                //移除已经分配的空闲块
+                free_block.erase(it);
+
+                used += size;
+                peak = std::max(peak, used);
+                return addr;
+            }
+            ++it;
+        }
+        printf("assign addr\r\n");
+
+        size_t addr = used;
+        used += size;
+        peak = std::max(peak, used);
+
+        printf("return addr %ld\r\n",addr);
+        return addr;
         // =================================== 作业 ===================================
         // TODO: 设计一个算法来分配内存，返回起始地址偏移量
         // =================================== 作业 ===================================
@@ -41,6 +77,33 @@ namespace infini
         IT_ASSERT(this->ptr == nullptr);
         size = getAlignedSize(size);
 
+        auto it = free_block.lower_bound(addr);
+
+        //合并前面的空闲块
+        if(it != free_block.begin())
+        {
+            auto prev = std::prev(it);
+            if(prev->first + prev->second >= addr)
+            {
+                prev->second += (size - (prev->first + prev->second - addr));
+                addr = prev->first;
+                used -= (size - (prev->first + prev->second - addr));
+                return ;
+            }
+        }
+
+        if(it != free_block.end() && addr + size >= it->first)
+        {
+            size += (it->second - (addr + size - it->first));
+            used -= (size - it->second);
+            free_block.erase(it);
+            free_block[addr] = size;
+            return;
+        }
+
+        free_block[addr] = size;
+
+        used -= size;
         // =================================== 作业 ===================================
         // TODO: 设计一个算法来回收内存
         // =================================== 作业 ===================================

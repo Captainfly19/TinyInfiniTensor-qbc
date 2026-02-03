@@ -13,10 +13,19 @@ optional<vector<Shape>> ConcatObj::inferShape(const TensorVec &inputs) {
     Shape dims = inputs[0]->getDims();
     auto rank = inputs[0]->getRank();
 
+    Shape dims_output = inputs[0]->getDims();
+    for(size_t i = 1;i < inputs.size(); i++)
+    {
+        dims_output[dim] += inputs[i]->getDims()[dim];
+    }
+
+    
+    return vector<Shape>{dims_output};  
     // =================================== 作业 ===================================
     // TODO：修改 dims，返回正确的 concat 后的 shape
     // REF: https://onnx.ai/onnx/operators/onnx__Concat.html#concat-13
     // =================================== 作业 ===================================
+    
 
     return {{dims}};
 }
